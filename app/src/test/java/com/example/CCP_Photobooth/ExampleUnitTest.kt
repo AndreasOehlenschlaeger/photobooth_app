@@ -1,4 +1,4 @@
-package com.example.exampleapp
+package com.example.CCP_Photobooth
 
 import org.junit.Test
 

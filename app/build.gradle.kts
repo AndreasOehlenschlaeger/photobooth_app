@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.exampleapp"
+    namespace = "com.example.CCP_Photobooth"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -67,4 +67,6 @@ dependencies {
 
     // It's ok to just use HTTP as we run flask server locally only
     implementation(libs.okhttp)
+
+    implementation(libs.androidx.compose.material.icons.extended)
 }

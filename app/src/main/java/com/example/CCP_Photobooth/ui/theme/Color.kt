@@ -1,4 +1,4 @@
-package com.example.exampleapp.ui.theme
+package com.example.CCP_Photobooth.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
