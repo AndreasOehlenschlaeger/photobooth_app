@@ -64,4 +64,7 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // It's ok to just use HTTP as we run flask server locally only
+    implementation(libs.okhttp)
 }

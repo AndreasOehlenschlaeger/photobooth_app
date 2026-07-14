@@ -1,7 +1,6 @@
 package com.example.exampleapp
 
 import android.Manifest
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
@@ -32,9 +31,23 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import java.text.SimpleDateFormat
-import java.util.*
+import android.util.Base64
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import android.util.Log
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
+
+val httpClient = OkHttpClient() // reused across calls, don't recreate per request
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -116,7 +129,7 @@ fun CameraContent(onPhotoTaken: (Bitmap) -> Unit) {
                     val cameraProvider = cameraProviderFuture.get()
 
                     val preview = Preview.Builder().build().also {
-                        it.setSurfaceProvider(previewView.surfaceProvider)
+                        it.surfaceProvider = previewView.surfaceProvider
                     }
 
                     val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
@@ -158,10 +171,10 @@ fun CameraContent(onPhotoTaken: (Bitmap) -> Unit) {
         // Trigger countdown + capture
         LaunchedEffect(countdown) {
             if (countdown != null && countdown!! > 0) {
-                delay(1000)
+                delay(1000.milliseconds)
                 countdown = countdown!! - 1
             } else if (countdown == 0) {
-                delay(300) // brief pause on the emoji before capture
+                delay(300.milliseconds) // brief pause on the emoji before capture
                 capturePhoto(context, imageCapture, onPhotoTaken)
                 countdown = null
             }
@@ -216,6 +229,9 @@ fun imageProxyToBitmap(image: ImageProxy): Bitmap {
 @Composable
 fun ReviewScreen(bitmap: Bitmap, onRetake: () -> Unit) {
     var email by remember { mutableStateOf("") }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Photo fills the entire screen
@@ -253,6 +269,16 @@ fun ReviewScreen(bitmap: Bitmap, onRetake: () -> Unit) {
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White
                 ),
+                singleLine = true,  // <-- prevents newline insertion entirely
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Done  // <-- changes the Enter key's icon/behavior to "Done"
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {  // <-- fires when Done/Enter is pressed
+                        keyboardController?.hide()
+                        focusManager.clearFocus()
+                    }
+                ),
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -267,11 +293,53 @@ fun ReviewScreen(bitmap: Bitmap, onRetake: () -> Unit) {
                 }
 
                 Button(onClick = {
-                    println("Would send photo to: $email")
+                    keyboardController?.hide()
+                    focusManager.clearFocus()
+                    val testEmail = "madswint@protonmail.com"  // hardcoded for now
+                    Log.d("PhotoSend", "Send button clicked, target=$testEmail")
+                    sendPhotoToServer(bitmap, testEmail) { success ->
+                        statusMessage = if (success) "Sent!" else "Error sending..."
+                    }
                 }) {
                     Text("Send")
                 }
             }
         }
     }
+}
+
+
+fun sendPhotoToServer(bitmap: Bitmap, email: String, onResult: (success: Boolean) -> Unit) {
+    Thread {
+        try {
+            Log.d("PhotoSend", "Starting send process")
+
+            val outputStream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
+            val base64Image = Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
+            Log.d("PhotoSend", "Encoded image, size=${base64Image.length} chars")
+
+            val json = JSONObject().apply {
+                put("email", email)
+                put("image_base64", base64Image)
+            }
+            val body = json.toString().toRequestBody("application/json".toMediaType())
+
+            val request = Request.Builder()
+                .url("http://127.0.0.1:5000/send-photo")
+                .post(body)
+                .build()
+
+            Log.d("PhotoSend", "Sending request to ${request.url}")
+
+            httpClient.newCall(request).execute().use { response ->
+                val text = response.body?.string() ?: ""
+                Log.d("PhotoSend", "Response code=${response.code}, body=$text")
+                onResult(response.isSuccessful)
+            }
+        } catch (e: Exception) {
+            Log.e("PhotoSend", "Send failed", e)
+            onResult(false)
+        }
+    }.start()
 }
